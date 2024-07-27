@@ -4,6 +4,7 @@ const { connectToDb, getDb } = require('./db');
 const session = require('express-session');
 require('dotenv').config();
 const { URL, URLSearchParams } = require('url');
+//const { fetchAndStoreSongs } = require('./fetchSongs');
 
 let fetch;
 (async () => {
@@ -30,6 +31,11 @@ connectToDb(err => {
         console.log(`Server is running on port ${port}`);
     });
     db = getDb();
+    // run the fetchSongs after starting the server
+    const fetchAndStoreSongs = require('./fetchSongs');
+    fetchAndStoreSongs();  
+  } else{
+    console.error('Failed to start server:', err);
   }
 });
 
@@ -42,6 +48,38 @@ const REDIRECT_URI = 'http://localhost:4000/callback';
 const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const SPOTIFY_USER_PROFILE_URL = 'https://api.spotify.com/v1/me';
 const SPOTIFY_API_BASE_URL = 'https://api.spotify.com/v1/';
+
+
+// helper functions 
+// function to refresh the access token
+const refreshAccessToken = async (req) => {
+    try{
+        const token_response = await fetch(SPOTIFY_TOKEN_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                Authorization: 'Basic ' + Buffer.from(CLIENT_ID + ':' + CLIENT_SECRET).toString('base64')
+            },
+            body: new URLSearchParams({
+                grant_type: 'refresh_token',
+                refresh_token: req.session.refreshToken
+            })
+        });
+
+        const token_data = await token_response.json();
+        if (token_data.error) {
+            console.error('Error refreshing access token:', token_data.error);
+            return {error: 'Failed to refresh access token. Please log in again.'};
+        }
+
+        req.session.accessToken = token_data.access_token;
+        req.session.expires_at = Date.now() + (token_data.expires_in * 1000);
+        return {accessToken: token_data.access_token};
+    } catch(err){
+        console.error('Error refreshing access token:', err);
+        return {error: 'Internal server error during token refresh. Please try again.'};
+    }
+}
 
 //routes 
 app.get('/', (req,res) =>{
@@ -78,7 +116,7 @@ app.get('/callback', async (req,res) => {
     //handle error 
     if (error) {
         console.error('Spotify OAuth error:', error);
-        return res.status(401).json({ message: 'Authorization failed. Please try again.' });
+        res.status(401).json({ message: 'Authorization failed. Please try again.' });
     }
 
     try{
@@ -98,7 +136,7 @@ app.get('/callback', async (req,res) => {
         const token_data = await token_response.json();
         if (token_data.error) {
             console.error('Error exchanging code for access token:', token_data.error);
-            return res.status(500).json({ message: 'Failed to authenticate with Spotify. Please try again.' });
+            res.status(500).json({ message: 'Failed to authenticate with Spotify. Please try again.' });
         }
 
         // Store tokens in the session
@@ -119,7 +157,7 @@ app.get('/callback', async (req,res) => {
                 {_id: possible_user._id},
                 {$set: {name: user_profile.display_name, image: user_profile.images.length > 0 ? user_profile.images[0].url : possible_user.image, email: user_profile.email}})
                 req.session.userId = possible_user._id;
-                return res.status(201).json(possible_user);
+                res.status(201).json(possible_user);
         } else {
             const user = {
                 email: user_profile.email,
@@ -130,11 +168,39 @@ app.get('/callback', async (req,res) => {
             const inserted_id = result.insertedId;
             new_user = await db.collection('users').findOne({_id: inserted_id});
             req.session.userId = new_user._id;
-            return res.status(201).json(new_user);
+            res.status(201).json(new_user);
         }
 
     } catch(err){
         console.error('Error exchanging code for access token:', err);
-        return res.status(500).json({ message: 'Internal server error during authentication. Please try again.' });
+        res.status(500).json({ message: 'Internal server error during authentication. Please try again.' });
     }
 });
+
+app.get('/user', async (req,res) => {
+    if (!req.session.accessToken) {
+        return res.status(401).json({ message: 'Unauthorized access' });
+    }
+    if(Date.now() > req.session.expires_at){
+        const token_refresh = await refreshAccessToken(req);
+        if (token_refresh.error){
+            return res.status(500).json(token_refresh);
+        }
+    }
+    const user = db.collection('users').findOne({_id: new ObjectId(req.session.userId)})
+    res.status(200).json(user)
+})
+
+app.get('/users', (re,res) => {
+    let users = []
+    db.collection('users').find()
+        .forEach( book => {
+            users.push(book);
+        })
+        .then(() =>{
+            res.status(200).json({"users" : users})
+        }).catch (err => {
+            console.log(err)
+            res.status(500).json({ message: 'Internal server error during data fetch. Please try again.' });
+        })
+})
