@@ -21,6 +21,7 @@
     "mongodb": "^6.8.0",
     "node-cron": "^3.0.3",
     "node-fetch": "^3.3.2",
+    "openai": "^4.54.0",
     "spotify-web-api-node": "^5.0.2"
   }
 }
