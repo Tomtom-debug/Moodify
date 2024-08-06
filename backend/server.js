@@ -4,6 +4,8 @@ const { connectToDb, getDb } = require('./db');
 const session = require('express-session');
 require('dotenv').config();
 const { URL, URLSearchParams } = require('url');
+const OpenAI = require('openai');
+const cors = require('cors');
 //const { fetchAndStoreSongs } = require('./fetchSongs');
 
 let fetch;
@@ -15,6 +17,21 @@ let fetch;
 // initialize app and middleware
 const app = express();
 app.use(express.json());
+
+// Configure CORS
+const corsOptions = {
+    origin: 'http://localhost:3000',
+    optionsSuccessStatus: 200 // For legacy browser support
+  };
+  
+app.use(cors(corsOptions)); // Use CORS with the specified options
+  
+
+// Initialize OpenAI
+const openai = new OpenAI({
+    apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
+});
+
 app.use(session({
     secret: process.env.APP_SECRET,
     resave: false,
@@ -80,6 +97,90 @@ const refreshAccessToken = async (req) => {
         return {error: 'Internal server error during token refresh. Please try again.'};
     }
 }
+
+// Helper function to generate response
+async function generateResponse(message, chatLog) {
+    console.log('generateResponse called with message:', message, 'chatLog:', chatLog);
+
+    chatLog = chatLog || [];
+    const context = chatLog.map(entry => `${entry.type === 'user' ? 'User' : 'Bot'} says: "${entry.message}"`).join('\n');
+    const prompt = `Given the following conversation, respond to the latest user message considering their mood and the potential need for a song suggestion from Spotify.\n${context}\nUser says: "${message}"\nResponse:`;
+
+    try {
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+                { role: "system", content: "You are a helpful assistant." },
+                { role: "user", content: prompt },
+            ],
+        });
+
+        console.log('OpenAI response for generation:', JSON.stringify(response, null, 2));
+        return { success: true, response: response.choices[0].message.content.trim() };
+    } catch (error) {
+        console.error('Error generating response:', error);
+        return { success: false, error: 'Failed to generate response.' };
+    }
+}
+
+
+
+// Helper function to get intent
+async function getIntent(message, chatLog) {
+    console.log('getIntent called with message:', message, 'chatLog:', chatLog);
+
+    chatLog = chatLog || [];
+    const historyContext = chatLog.map(entry => `${entry.type === 'user' ? 'User' : 'Bot'} says: "${entry.message}"`).join('\n');
+
+    const examples = `
+    Examples:
+    User says: "Can you play a happy song?"
+    Intent: "song recommendation"
+
+    User says: "Pause the music"
+    Intent: "pause"
+
+    User says: "Hi, how are you?"
+    Intent: "greetings"
+
+    User says: "Skip this track"
+    Intent: "skip"
+
+    User says: "Play some music"
+    Intent: "play"
+
+    User says: "Play a song"
+    Intent: "play"
+    `;
+
+    const prompt = `"${message} \nstrictly analyse and put the above message under one of these categories: "play","skip", "pause", "song recommendation", "greetings". Return only the intent. Do not strictly pick keywords that match the categories, but look for the intent. If the intent does not fall into any of the above, return null. Do not generate any other response.\nConsider the context of the chat history for clues ${historyContext}`;
+
+    try {
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+                { role: "system", content: "You are a helpful assistant." },
+                { role: "user", content: prompt },
+            ],
+        });
+
+        console.log('OpenAI response for intent:', JSON.stringify(response, null, 2));
+        let intent = response.choices[0].message.content.trim();
+        if (intent === "null" || !["play", "skip", "pause", "song recommendation", "greetings"].includes(intent.toLowerCase())) {
+            intent = null;
+        }
+
+        console.log('Determined intent:', intent);
+        return { success: true, intent: intent };
+    } catch (error) {
+        console.error('Error fetching intent:', error);
+        return { success: false, error: 'Failed to determine intent.' };
+    }
+}
+
+
+
+
 
 //routes 
 app.get('/', (req,res) =>{
@@ -204,3 +305,41 @@ app.get('/users', (re,res) => {
             res.status(500).json({ message: 'Internal server error during data fetch. Please try again.' });
         })
 })
+
+app.get('/logout', (req,res) => {
+    req.session.destroy();
+    res.status(200).json({message: 'Logged out successfully'});
+})
+
+// Endpoint to handle message generation
+app.post('/generate', async (req, res) => {
+    console.log('Request received at /generate with body:', req.body);
+    const { message, chatLog } = req.body;
+
+    try {
+        const intentResult = await getIntent(message, chatLog);
+        console.log('Intent result:', intentResult);
+        if (!intentResult.success) {
+            return res.status(500).json({ error: intentResult.error });
+        }
+
+        let responseMessage;
+        if (intentResult.intent === null) {
+            //const responseResult = await generateResponse(message, chatLog);
+            //console.log('Response result:', responseResult);
+            //if (!responseResult.success) {
+                //return res.status(500).json({ error: responseResult.error });
+            //}
+            //responseMessage = responseResult.response;
+            responseMessage = 'Would you like me to play a song for you?';
+        } else {
+            responseMessage = `Intent recognized: ${intentResult.intent}`;
+        }
+
+        console.log('Final response message:', responseMessage);
+        return res.status(200).json({ message: responseMessage });
+    } catch (error) {
+        console.error('Error handling request:', error);
+        res.status(500).json({ error: 'Internal server error.' });
+    }
+});
