@@ -6,7 +6,8 @@ require('dotenv').config();
 const { URL, URLSearchParams } = require('url');
 const OpenAI = require('openai');
 const cors = require('cors');
-//const { fetchAndStoreSongs } = require('./fetchSongs');
+const bodyParser = require('body-parser');
+const { spawn } = require('child_process');
 
 let fetch;
 (async () => {
@@ -17,6 +18,7 @@ let fetch;
 // initialize app and middleware
 const app = express();
 app.use(express.json());
+
 
 // Configure CORS
 const corsOptions = {
@@ -29,7 +31,7 @@ app.use(cors(corsOptions)); // Use CORS with the specified options
 
 // Initialize OpenAI
 const openai = new OpenAI({
-    apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
+    apiKey: process.env.OPENAI_API_KEY,
 });
 
 app.use(session({
@@ -333,7 +335,7 @@ app.post('/generate', async (req, res) => {
             //responseMessage = responseResult.response;
             responseMessage = 'Would you like me to play a song for you?';
         } else {
-            responseMessage = `Intent recognized: ${intentResult.intent}`;
+            responseMessage = intentResult.intent;
         }
 
         console.log('Final response message:', responseMessage);
@@ -342,4 +344,23 @@ app.post('/generate', async (req, res) => {
         console.error('Error handling request:', error);
         res.status(500).json({ error: 'Internal server error.' });
     }
+});
+
+app.post('/analyzeMood', async (req, res) => {
+    const { image } = req.body;
+
+    const pythonProcess = spawn('python3', ['analyze_mood.py']);
+    pythonProcess.stdin.write(JSON.stringify({ image: image }));
+    pythonProcess.stdin.end();
+
+    pythonProcess.stdout.on('data', (data) => {
+        const result = JSON.parse(data.toString());
+        const emotion = result[0]['dominant_emotion']; // Adjust based on DeepFace output format
+        res.json({ message: `Your mood is detected as ${emotion}. Here's a song recommendation for you!`, mood: emotion });
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+        console.error('Error analyzing mood:', data.toString());
+        res.status(500).json({ error: 'Failed to analyze mood.' });
+    });
 });
