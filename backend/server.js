@@ -355,7 +355,7 @@ app.post('/analyzeMood', async (req, res) => {
 
     pythonProcess.stdout.on('data', (data) => {
         const result = JSON.parse(data.toString());
-        const emotion = result[0]['dominant_emotion']; // Adjust based on DeepFace output format
+        const emotion = result[0]['dominant_emotion']; // Get the dominant emotion
         res.json({ message: `Your mood is detected as ${emotion}. Here's a song recommendation for you!`, mood: emotion });
     });
 
