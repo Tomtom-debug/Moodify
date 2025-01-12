@@ -8,14 +8,15 @@ import NowPlaying from './NowPlaying';
 const AppContent = () => {
   const location = useLocation();
   const [currentSong, setCurrentSong] = useState(null); // State for the current song
+  const [userImage, setUserImage] = useState(null); // State for the user's profile image
 
   return (
     <div className="bg-black">
-      {location.pathname !== '/' && <Navbar />}
+      {location.pathname !== '/' && <Navbar userImage={userImage} />}
       <div className="content">
         <Routes>
           <Route path="/" element={<Login />} />
-          <Route path="/home" element={<Home setCurrentSong={setCurrentSong} />} />
+          <Route path="/home" element={<Home setCurrentSong={setCurrentSong} setUserImage={setUserImage} currentSong={currentSong} />} />
         </Routes>
       </div>
       {location.pathname !== '/' && <NowPlaying song={currentSong} />}

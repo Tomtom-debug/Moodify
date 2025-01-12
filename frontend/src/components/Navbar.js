@@ -1,10 +1,19 @@
 import React from 'react';
 import '../index.css'; 
 import { Link } from 'react-router-dom';
+import axios from 'axios'; // Import axios
 
 export const Navbar = ({ userImage }) => {
-    const handleLogout = () => {
-        window.location.href = 'http://localhost:4000/logout';
+    const handleLogout = async () => {
+        try {
+            const response = await axios.get('http://localhost:4000/logout', { withCredentials: true });
+            console.log(response.data.message); // Log the backend response
+            localStorage.removeItem('token'); // Clear token if stored
+            window.location.href = '/'; // Redirect to login page
+        } catch (error) {
+            console.error('Logout failed:', error);
+            alert('Error logging out. Please try again.');
+        }
     };
 
     return (
@@ -30,6 +39,6 @@ export const Navbar = ({ userImage }) => {
         </nav>
       </div>
     );
-  };
+};
 
-  export default Navbar;
+export default Navbar;

@@ -369,6 +369,8 @@ app.get('/callback', async (req, res) => {
                     { expiresIn: '1h' }
                 );
                 
+                console.log('Token:', token);
+                console.log(possible_user.image);
                 res.redirect(`http://localhost:3000/home?token=${token}`);
             } catch (jsonError) {
                 console.error('Error parsing user profile JSON:', jsonError);
@@ -429,17 +431,44 @@ app.get('/users', async (req,res) => {
 })
 
 app.get('/logout', (req, res) => {
-    if (req.session.accessToken) {
+    if (req.session) {
         req.session.destroy((err) => {
             if (err) {
-                // Handle session destruction error
                 console.error('Error destroying session:', err);
-                return res.status(500).json({ message: 'Failed to log out' });
+                return res.status(500).json({ message: 'Failed to log out.' });
             }
-            return res.redirect('http://localhost:3000/');
+            res.clearCookie('connect.sid'); // Clear session cookie
+            res.status(200).json({ message: 'Logged out successfully.' });
         });
     } else {
-        return res.status(401).json({ message: 'Unauthorized access' });
+        res.status(401).json({ message: 'No active session to log out from.' });
+    }
+});
+
+app.post('/saveState', (req, res) => {
+    console.log('Received save request:', req.body); // Log received data
+    if (req.session) {
+        const { chatLog, currentSong } = req.body;
+        // Save state in session
+        req.session.userState = { chatLog, currentSong };
+        console.log('Saved state for user:', req.session.userState); // Log saved data
+        res.sendStatus(200);
+    } else {
+        res.status(401).json({ message: 'No permission and access' });
+    }
+});
+
+app.get('/getState', (req, res) => {
+    if (!req.session) {
+        return res.status(401).json({ message: 'No permission and access' });
+    }
+    try {
+        const userState = req.session.userState || { chatLog: [], currentSong: null };
+        console.log('Retrieved state for user:', userState); // Log retrieved data
+        res.json(userState);
+    } catch (error) {
+        console.error('Error fetching user state:', error);
+        res.status(500).json({ message: 'Failed to retrieve user state' });
     }
 });
 

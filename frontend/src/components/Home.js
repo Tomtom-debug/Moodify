@@ -4,36 +4,81 @@ import { TypingAnimation } from './TypingAnimation';
 import Webcam from 'react-webcam';
 import { jwtDecode } from 'jwt-decode';
 
-export const Home = ({ setCurrentSong }) => {
+export const Home = ({ setCurrentSong, setUserImage, currentSong}) => {
     const [inputValue, setInputValue] = useState('');
-    const [userImage, setUserImage] = useState(null);
+    //const [userImage, setUserImage] = useState(null);
     const [chatLog, setChatLog] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [showWebcam, setShowWebcam] = useState(false);
-    const [showAnalysisMessage, setShowAnalysisMessage] = useState(false);
+    //const [showWebcam, setShowWebcam] = useState(false);
+    //const [showAnalysisMessage, setShowAnalysisMessage] = useState(false);
     const webcamRef = useRef(null);
     const chatContainerRef = useRef(null);
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token');
+    const [greetingMessage, setGreetingMessage] = useState('');
+    
 
     
 
     useEffect(() => {
-        let userData = null;
+        const fetchData = async () => {
+            let userData = null;
     
-        if (token) {
-            userData = jwtDecode(token); // Decode the token
-            console.log(userData); // { image: 'image_url', name: 'User Name' }
-            setUserImage(userData.image); // Set the user's image
-        }
+            // Decode token and set user image
+            if (token) {
+                userData = jwtDecode(token);
+                console.log(userData); // { image: 'image_url', name: 'User Name' }
+                setUserImage(userData.image);
+            }
     
-        const greetingMessage = userData
-            ? `Hello, ${userData.name}! I am Moodify, your personal assistant here to analyze your mood and play songs for you. How can I help you today?`
-            : "Hello! I am Moodify, your personal assistant here to analyze your mood and play songs for you. How can I help you today?";
-        
-        const botMessage = { type: 'bot', message: greetingMessage };
-        setChatLog([botMessage]); // Set the greeting message
-    }, [token]);
+            // Generate and set the greeting message only once
+            const generatedGreeting = userData
+                ? `Hello, ${userData.name}! I am Moodify, your personal assistant here to analyze your mood and play songs for you. How can I help you today?`
+                : "Hello! I am Moodify, your personal assistant here to analyze your mood and play songs for you. How can I help you today?";
+            setGreetingMessage(generatedGreeting);
+    
+            try {
+                // Fetch persistent data from the backend
+                const response = await axios.get('http://localhost:4000/getState', { withCredentials: true });
+                console.log('Fetched state:', response.data);
+                const { chatLog: savedChatLog, currentSong: savedCurrentSong } = response.data;
+    
+                if (savedChatLog && savedChatLog.length > 0) {
+                    setChatLog(savedChatLog);
+                    setCurrentSong(savedCurrentSong || null); // Set current song if it exists
+                } else {
+                    // Use generatedGreeting if no saved data exists
+                    setChatLog([{ type: 'bot', message: generatedGreeting }]);
+                }
+            } catch (error) {
+                console.error('Error fetching saved state:', error);
+                // Fallback to generatedGreeting if fetching fails
+                setChatLog([{ type: 'bot', message: generatedGreeting }]);
+            }
+        };
+    
+        fetchData();
+    }, []); // Empty dependency array to run only once
+
+    useEffect(() => {
+        const saveStateOnUnload = () => {
+            const payload = {
+                chatLog,
+                currentSong,
+            };
+    
+            axios.post('http://localhost:4000/saveState', payload, { withCredentials: true })
+                .then(() => console.log('State saved on unload'))
+                .catch((error) => console.error('Error saving state on unload:', error));
+        };
+    
+        window.addEventListener('beforeunload', saveStateOnUnload);
+    
+        return () => {
+            window.removeEventListener('beforeunload', saveStateOnUnload);
+        };
+    }, [chatLog, currentSong]);
+
 
     useEffect(() => {
         if (chatContainerRef.current) {
@@ -132,21 +177,14 @@ export const Home = ({ setCurrentSong }) => {
                 }else if (response.data.message === 'skip to next') {
                     axios.get('http://localhost:4000/skipNext', { withCredentials: true })
                         .then((response) => {
-                            const trackEmbedUrl = response.data.embedUrl;
-                            const embedMessage = (
-                                <div>
-                                    <p>{`Now playing: ${response.data.songName} by ${response.data.artist}`}</p>
-                                    <iframe
-                                        src={trackEmbedUrl}
-                                        width="300"
-                                        height="80"
-                                        frameBorder="0"
-                                        allowTransparency="true"
-                                        allow="encrypted-media">
-                                    </iframe>
-                                </div>
-                            );
-                            setChatLog((prevChatLog) => [...prevChatLog, { type: 'bot', message: embedMessage }]);
+                            const songData = {
+                                name: response.data.songName,
+                                artist: response.data.artist,
+                                image: response.data.albumArt || "/placeholder-song.jpg",
+                                embedUrl: response.data.embedUrl,
+                              };
+                              setCurrentSong(songData); // Update the global current song
+                              setChatLog((prevChatLog) => [...prevChatLog, { type: "bot", message: `Now playing: ${songData.name} by ${songData.artist}` }]);
                         })
                         .catch((error) => {
                             console.error('Error skipping to next song:', error);
@@ -180,7 +218,7 @@ export const Home = ({ setCurrentSong }) => {
                             setChatLog((prevChatLog) => [...prevChatLog, { type: 'bot', message: response.data.error }]);
                         });
                 } else if (response.data.message === 'greetings'){
-                    setChatLog((prevChatLog) => [...prevChatLog, { type: 'bot', message: 'Hello! I am Moodify, your personal assistant here to analyze your mood and play songs for you. How can I help you today?' }]);
+                    setChatLog((prevChatLog) => [...prevChatLog, { type: 'bot', message: greetingMessage }]);
                 }
                 setLoading(false);
             })
@@ -219,14 +257,14 @@ export const Home = ({ setCurrentSong }) => {
                         )}
                     </div>
                 </div>
-                {showAnalysisMessage && (
+                {/*{showAnalysisMessage && (
                     <div className="flex justify-center p-6">
                         <div className="bg-gray-700 text-white p-4 rounded-lg">
                             Using webcam to analyze your mood...
                         </div>
                     </div>
                 )}
-                {/*{showWebcam && (
+                {showWebcam && (
                     <div className="webcam-container absolute bottom-0 left-0 right-0 flex flex-col items-center p-6 bg-white z-10">
                         <Webcam
                             audio={false}
