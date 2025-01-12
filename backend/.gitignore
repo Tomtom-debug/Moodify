@@ -1,9 +1,16 @@
-.env
-node_modules/
+# Python virtual environments
+venv/
+backend/venv/
+
 # Log files
 *.log
 logs/
-start.sh 
+
+# Python cache files
+*.pyc
+__pycache__/
+
+# Miscellaneous
 .DS_Store
-backend/venv/
-venv/
+.env
+start.sh

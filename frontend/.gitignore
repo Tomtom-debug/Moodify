@@ -5,8 +5,7 @@
 /.pnp
 .pnp.js
 .env
-venv/
-backend/venv/
+
 
 
 # testing
