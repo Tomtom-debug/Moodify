@@ -9,6 +9,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const { spawn } = require('child_process');
 const MongoStore = require('connect-mongo');
+const jwt = require('jsonwebtoken');
 
 let fetch;
 (async () => {
@@ -341,7 +342,8 @@ app.get('/callback', async (req, res) => {
                     const user = {
                         email: user_profile.email,
                         name: user_profile.display_name,
-                        image: user_profile.images.length > 0 ? user_profile.images[0].url : null
+                        image: user_profile.images.length > 0 ? user_profile.images[0].url : null,
+                        mood : []
                     };
                     const result = await db.collection('users').insertOne(user);
                     const inserted_id = result.insertedId;
@@ -358,7 +360,16 @@ app.get('/callback', async (req, res) => {
                 console.log('Session after saving tokens:', req.session);
 
 
-                res.redirect('http://localhost:3000/home');
+                const token = jwt.sign(
+                    { 
+                        image: user_profile.images.length > 0 ? user_profile.images[0].url : null,
+                        name: user_profile.display_name,
+                    },
+                    process.env.TOKEN_SECRET, // Replace with a secure secret key
+                    { expiresIn: '1h' }
+                );
+                
+                res.redirect(`http://localhost:3000/home?token=${token}`);
             } catch (jsonError) {
                 console.error('Error parsing user profile JSON:', jsonError);
                 return res.status(500).json({ message: 'Failed to parse user profile from Spotify.' });
@@ -417,13 +428,20 @@ app.get('/users', async (req,res) => {
         })
 })
 
-app.get('/logout', (req,res) => {
+app.get('/logout', (req, res) => {
     if (req.session.accessToken) {
-        req.session.destroy();
-        res.redirect('http://localhost:3000/');
+        req.session.destroy((err) => {
+            if (err) {
+                // Handle session destruction error
+                console.error('Error destroying session:', err);
+                return res.status(500).json({ message: 'Failed to log out' });
+            }
+            return res.redirect('http://localhost:3000/');
+        });
+    } else {
+        return res.status(401).json({ message: 'Unauthorized access' });
     }
-    res.status(401).json({message: 'Unauthorized access'});
-})
+});
 
 // Endpoint to handle message generation
 app.post('/generate', async (req, res) => {
@@ -452,14 +470,14 @@ app.post('/generate', async (req, res) => {
 
         let responseMessage;
         if (intentResult.intent === null) {
-            //const responseResult = await generateChatResponse(message, chatLog);
-            //console.log('Response result:', responseResult);
-            //if (!responseResult.success) {
-                //return res.status(500).json({ error: responseResult.error });
-            //}
-            //responseMessage = responseResult.response;
-            console.log('No specific intent detected. Asking user if they want a song.');
-            responseMessage = 'Would you like me to play a song for you?';
+            const responseResult = await generateChatResponse(message, chatLog);
+            console.log('Response result:', responseResult);
+            if (!responseResult.success) {
+                return res.status(500).json({ error: responseResult.error });
+            }
+            responseMessage = responseResult.response;
+            //console.log('No specific intent detected. Asking user if they want a song.');
+            //responseMessage = 'Would you like me to play a song for you?';
         } else {
             console.log('Intent detected:', intentResult.intent);
             responseMessage = intentResult.intent;
@@ -566,37 +584,45 @@ app.get('/pauseSong', async (req, res) => {
 });
 
 app.get('/skipNext', async (req, res) => {
+    const tokenCheck = await checkToken(req, res);
+    if (!tokenCheck.success) {
+        return res.status(tokenCheck.status).json({ error: tokenCheck.message });
+    }
+
     try {
-        const tokenCheck = await checkToken(req, res);
-        if (!tokenCheck.success) {
-            console.log('Token check failed:', tokenCheck.message);
-            return res.status(tokenCheck.status).json({ error: tokenCheck.message });
-        }
+        const songQueue = req.session.songQueue || [];
 
-        const response = await fetch(SPOTIFY_API_BASE_URL + 'me/player/next', {
-            method: 'POST',
-            headers: {
-                'Authorization': 'Bearer ' + req.session.accessToken,
-                'Content-Type': 'application/json'
+        
+        
+        if (songQueue.length === 0) {
+            const randomSongs = await db.collection(mood).aggregate([{ $sample: { size: 16 } }]).toArray();
+            if (randomSongs.length === 0) {
+                return res.status(404).json({ message: 'No songs found for this mood.' });
             }
-        });
+            req.session.songQueue = randomSongs;
+            songQueue = randomSongs;
 
-        console.log('Response status:', response.status);
-
-        if (response.status === 200) {
-            // Success case
-            console.log('Skipped to the next song successfully.');
-            res.status(200).json({ message: 'Skipped to the next song successfully.' });
-        } else if (response.status === 400) {
-            // Handle cases where there is no active device
-            res.status(404).json({ message: 'No active device found. Please start playback on a device first.' });
-        } else {
-            console.error('Unexpected response from Spotify:', response.statusText);
-            res.status(response.status).json({ error: response.statusText });
         }
+
+        songQueue.shift();
+
+        const song = songQueue[0];
+        req.session.songQueue = songQueue; 
+
+        const trackUri = song.url.split('/track/')[1];
+        const embedUrl = `https://open.spotify.com/embed/track/${trackUri}`;
+
+        
+
+        res.status(200).json({
+            message: `Now playing: ${song.name} by ${song.artist}`,
+            songName: song.name,
+            artist: song.artist,
+            embedUrl: embedUrl
+        });
     } catch (error) {
         console.error('Error skipping to next song:', error);
-        res.status(500).json({ error: 'Failed to skip to next song.' });
+        res.status(500).json({ message: 'Internal server error.' });
     }
 });
 
@@ -662,86 +688,123 @@ app.get('/resumeSong', async (req, res) => {
     }
 });
 
+// app.post('/playSong', async (req, res) => {
+//     console.log('Request received at /playSong with body:', req.body);
+//     console.log(req.session.userId);
+//     const tokenCheck = await checkToken(req, res);
+//     if (!tokenCheck.success) {
+//         console.log('Token check failed:', tokenCheck.message);
+//         return res.status(tokenCheck.status).json({ error: tokenCheck.message });
+//     }
+//     const mood = req.body.mood;
+//     console.log('Mood:', mood);
+
+//     try {
+//         const randomSongs = await db.collection(mood).aggregate([{ $sample: { size: 16 } }]).toArray();
+//         console.log('Random songs:', randomSongs);
+
+//         if (randomSongs.length === 0) {
+//             console.log('No songs found for this mood.');
+//             return res.status(404).json({ message: 'No songs found for this mood.' });
+//         }
+
+//         const accessToken = req.session.accessToken;
+//         console.log('Access token:', accessToken);
+//         if (!accessToken) {
+//             console.log('No access token found.');
+//             return res.status(401).json({ message: 'Unauthorized. No access token found.' });
+//         }
+
+//         // Convert URLs to Spotify URIs
+//         const uris = randomSongs.map(song => `spotify:track:${song.url.split('/track/')[1]}`);
+        
+//         // Optionally fetch the user's devices and get the first available device ID
+//         const devicesResponse = await fetch('https://api.spotify.com/v1/me/player/devices', {
+//             method: 'GET',
+//             headers: {
+//                 'Authorization': `Bearer ${accessToken}`,
+//             }
+//         });
+        
+//         const devices = await devicesResponse.json();
+//         console.log('Devices:', devices);
+//         const activeDevice = devices.devices && devices.devices.length > 0 ? devices.devices[0].id : null;
+
+//         // Play the first song
+//         console.log('Playing song:', randomSongs[0].name);
+//         console.log('Active device:', activeDevice);
+//         console.log('URIs:', uris);
+//         const playResponse = await fetch('https://api.spotify.com/v1/me/player/play', {
+//             method: 'PUT',
+//             headers: {
+//                 'Authorization': `Bearer ${accessToken}`,
+//                 'Content-Type': 'application/json',
+//             },
+//             body: JSON.stringify({
+//                 uris: [uris[0]], // Play the first song immediately
+//                 device_id: activeDevice // Optional: specify device_id
+//             })
+//         });
+
+//         if (playResponse.status !== 204) {
+//             console.error('Failed to play the song:', playResponse.statusText);
+//             const errorData = await playResponse.json();
+//             return res.status(playResponse.status).json({ message: 'Failed to play the song.', error: errorData });
+//         }
+
+//         console.log('Song played successfully.');
+
+//         // Queue the next 15 songs
+//         for (let i = 1; i < uris.length; i++) {
+//             console.log('Queueing song:', randomSongs[i].name);
+//             await fetch(`https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uris[i])}`, {
+//                 method: 'POST',
+//                 headers: {
+//                     'Authorization': `Bearer ${accessToken}`,
+//                     'Content-Type': 'application/json',
+//                 }
+//             });
+//         }
+//         console.log('Songs queued successfully.');
+
+//         res.status(200).json({ message: `Now playing: ${randomSongs[0].name} by ${randomSongs[0].artist}` });
+//     } catch (error) {
+//         console.error('Error playing song:', error);
+//         res.status(500).json({ message: 'Internal server error.' });
+//     }
+// });
+
 app.post('/playSong', async (req, res) => {
-    console.log('Request received at /playSong with body:', req.body);
-    console.log(req.session.userId);
     const tokenCheck = await checkToken(req, res);
     if (!tokenCheck.success) {
-        console.log('Token check failed:', tokenCheck.message);
         return res.status(tokenCheck.status).json({ error: tokenCheck.message });
     }
     const mood = req.body.mood;
-    console.log('Mood:', mood);
+    req.session.mood = mood;
 
     try {
         const randomSongs = await db.collection(mood).aggregate([{ $sample: { size: 16 } }]).toArray();
-        console.log('Random songs:', randomSongs);
-
         if (randomSongs.length === 0) {
-            console.log('No songs found for this mood.');
             return res.status(404).json({ message: 'No songs found for this mood.' });
         }
 
         const accessToken = req.session.accessToken;
-        console.log('Access token:', accessToken);
-        if (!accessToken) {
-            console.log('No access token found.');
-            return res.status(401).json({ message: 'Unauthorized. No access token found.' });
-        }
 
-        // Convert URLs to Spotify URIs
-        const uris = randomSongs.map(song => `spotify:track:${song.url.split('/track/')[1]}`);
-        
-        // Optionally fetch the user's devices and get the first available device ID
-        const devicesResponse = await fetch('https://api.spotify.com/v1/me/player/devices', {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-            }
+       
+        req.session.songQueue = randomSongs;
+
+        const song = randomSongs[0];
+        const trackUri = song.url.split('/track/')[1];
+        const embedUrl = `https://open.spotify.com/embed/track/${trackUri}`;
+
+       
+
+        res.status(200).json({
+            message: `Now playing: ${song.name} by ${song.artist}`,
+            songName: song.name,
+            artist: song.artist,
+            embedUrl: embedUrl
         });
-        
-        const devices = await devicesResponse.json();
-        console.log('Devices:', devices);
-        const activeDevice = devices.devices && devices.devices.length > 0 ? devices.devices[0].id : null;
-
-        // Play the first song
-        console.log('Playing song:', randomSongs[0].name);
-        console.log('Active device:', activeDevice);
-        console.log('URIs:', uris);
-        const playResponse = await fetch('https://api.spotify.com/v1/me/player/play', {
-            method: 'PUT',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                uris: [uris[0]], // Play the first song immediately
-                device_id: activeDevice // Optional: specify device_id
-            })
-        });
-
-        if (playResponse.status !== 204) {
-            console.error('Failed to play the song:', playResponse.statusText);
-            const errorData = await playResponse.json();
-            return res.status(playResponse.status).json({ message: 'Failed to play the song.', error: errorData });
-        }
-
-        console.log('Song played successfully.');
-
-        // Queue the next 15 songs
-        for (let i = 1; i < uris.length; i++) {
-            console.log('Queueing song:', randomSongs[i].name);
-            await fetch(`https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uris[i])}`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json',
-                }
-            });
-        }
-        console.log('Songs queued successfully.');
-
-        res.status(200).json({ message: `Now playing: ${randomSongs[0].name} by ${randomSongs[0].artist}` });
     } catch (error) {
         console.error('Error playing song:', error);
         res.status(500).json({ message: 'Internal server error.' });
