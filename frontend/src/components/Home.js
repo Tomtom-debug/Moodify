@@ -164,7 +164,6 @@ export const Home = ({ setCurrentSong, setUserImage, currentSong}) => {
         axios.post('http://localhost:4000/generate', payload, { withCredentials: true })
             .then((response) => {
                 console.log(response.data);
-                setChatLog((prevChatLog) => [...prevChatLog, { type: 'bot', message: response.data.message }]);
                 if (response.data.message === 'play song' || response.data.message === 'song recommendation') {
                     {/*setShowAnalysisMessage(true); 
                     setTimeout(() => {
@@ -190,35 +189,12 @@ export const Home = ({ setCurrentSong, setUserImage, currentSong}) => {
                             console.error('Error skipping to next song:', error);
                             setChatLog((prevChatLog) => [...prevChatLog, { type: 'bot', message: response.data.error }]);
                         });
-                } else if (response.data.message === 'skip to previous') {
-                    axios.get('http://localhost:4000/skipPrevious', { withCredentials: true })
-                        .then((response) => {
-                            setChatLog((prevChatLog) => [...prevChatLog, { type: 'bot', message: response.data.message }]);
-                        })
-                        .catch((error) => {
-                            console.error('Error skipping to next song:', error);
-                            setChatLog((prevChatLog) => [...prevChatLog, { type: 'bot', message: response.data.error }]);
-                        });
-                } else if (response.data.message === 'pause') {
-                    axios.get('http://localhost:4000/pauseSong', { withCredentials: true })
-                        .then((response) => {
-                            setChatLog((prevChatLog) => [...prevChatLog, { type: 'bot', message: response.data.message }]);
-                        })
-                        .catch((error) => {
-                            console.error('Error skipping to next song:', error);
-                            setChatLog((prevChatLog) => [...prevChatLog, { type: 'bot', message: response.data.error }]);
-                        });
-                } else if (response.data.message === 'resume song') {
-                    axios.get('http://localhost:4000/resumeSong', { withCredentials: true })
-                        .then((response) => {
-                            setChatLog((prevChatLog) => [...prevChatLog, { type: 'bot', message: response.data.message }]);
-                        })
-                        .catch((error) => {
-                            console.error('Error skipping to next song:', error);
-                            setChatLog((prevChatLog) => [...prevChatLog, { type: 'bot', message: response.data.error }]);
-                        });
+                } else if (response.data.message === 'skip to previous' || response.data.message === 'pause' || response.data.message === 'resume song') {
+                    setChatLog((prevChatLog) => [...prevChatLog, { type: 'bot', message: "This feature is coming soon! 😊 Stay tuned for updates." }]);
                 } else if (response.data.message === 'greetings'){
                     setChatLog((prevChatLog) => [...prevChatLog, { type: 'bot', message: greetingMessage }]);
+                } else {
+                    setChatLog((prevChatLog) => [...prevChatLog, { type: 'bot', message: response.data.message }]);
                 }
                 setLoading(false);
             })

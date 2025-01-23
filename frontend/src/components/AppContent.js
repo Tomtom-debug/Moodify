@@ -12,7 +12,7 @@ const AppContent = () => {
 
   return (
     <div className="bg-black">
-      {location.pathname !== '/' && <Navbar userImage={userImage} />}
+      {location.pathname !== '/' && <Navbar userImage={userImage} setCurrentSong={setCurrentSong} />}
       <div className="content">
         <Routes>
           <Route path="/" element={<Login />} />
