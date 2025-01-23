@@ -33,7 +33,6 @@ Moodify offers a range of functionalities designed to enhance your music listeni
 - **Chatbot Integration**: Engage in natural conversations with Moodify, making the experience interactive and user-friendly.
 - **Playback Control**: Supports the following playback actions:
   - Play Next Song
-  - Play Previous Song
 - **Intuitive User Interface**: A clean and responsive interface that includes:
   - A login page for seamless Spotify authentication.
   - A dashboard displaying the current song and chat interactions.
