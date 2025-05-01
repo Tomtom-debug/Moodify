@@ -241,7 +241,7 @@ Moodify is a growing project, and these enhancements are designed to make the pl
 If you have any questions, suggestions, or feedback about Moodify, feel free to reach out:
 
 - Email: samueltawiah2003@gmail.com
-- LinkedIn: [Your LinkedIn Profile](https://www.linkedin.com/in/samuel-tawiah/)
-- GitHub: [Your GitHub Profile](https://github.com/Tomtom-debug)
+- LinkedIn: [LinkedIn Profile](https://www.linkedin.com/in/samuel-tawiah/)
+- GitHub: [GitHub Profile](https://github.com/Tomtom-debug)
 
 Feel free to open an issue or submit a pull request for improvements. We'd love to hear from you!
